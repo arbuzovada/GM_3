@@ -41,4 +41,15 @@ function [labels, energy, time] = alphaBetaSwapGridPotts(unary, vertC, ...
         end
     end
     
+    [M, N, K] = size(unary);
+    
+    for t = 1 : MAX_ITER
+        for alpha = 1 : K
+            for beta = 1 : K
+                % build graph from alpha-beta?
+                % find min ut and labels of min cut
+                % respectively change labels to alpha/beta
+            end
+        end
+    end
 end
