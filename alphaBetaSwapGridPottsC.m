@@ -1,5 +1,5 @@
-function [labels, energy, time] = alphaBetaSwapGridPotts(unary_pot, pair_pot, ...
-    options) %vertC, horC, metric, ...
+function [labels, energy, time] = alphaBetaSwapGridPottsC(unary_pot, ...
+    vertC, horC, metric, options)
 % This function finds errors in message
 % INPUT:
 %    unary: N-by-M-by-K array of double, unary potentials
@@ -51,8 +51,7 @@ function [labels, energy, time] = alphaBetaSwapGridPotts(unary_pot, pair_pot, ..
                     
     for t = 1 : MAX_ITER
         if DISPLAY
-            energy = get_energy(labels, unary_pot, pair_pot);
-%             energy = get_energy(labels, unary, vertC, horC, metric);
+            energy = get_energyC(labels, unary_pot, vertC, horC, metric);
             fprintf('Iteration %d: E = %f\nNumber of 2nd pic: %d\n', t, ...
                 energy, sum(sum(labels == 2)));
         end
@@ -83,7 +82,7 @@ function [labels, energy, time] = alphaBetaSwapGridPotts(unary_pot, pair_pot, ..
                     edge_weights(i, :) = ...
                         get_pair_pot(find(inds == inds_ver(i), 1), ...
                         find(inds == inds_ver(i) - 1, 1), ...
-                        alpha, beta, pair_pot);
+                        alpha, beta, vertC, horC, metric, true);
                     if any(edge_weights(i, :) < 0)
                         edge_weights(i, :)
                         return
@@ -98,7 +97,7 @@ function [labels, energy, time] = alphaBetaSwapGridPotts(unary_pot, pair_pot, ..
                     edge_weights(i + length(inds_ver), :) = ...
                         get_pair_pot(find(inds == inds_hor(i), 1), ...
                         find(inds == inds_hor(i) - N, 1), ...
-                        alpha, beta, pair_pot);
+                        alpha, beta, vertC, horC, metric, false);
                 end
                 
                 % find labels of min cut
@@ -116,21 +115,20 @@ function [labels, energy, time] = alphaBetaSwapGridPotts(unary_pot, pair_pot, ..
     time = cumsum(time);
 end
 
-function res = get_pair_pot(ind1, ind2, alpha, beta, pair_pot)
-    [N, M, ~] = size(pair_pot);
-    i1 = mod(ind1, N);
-    j1 = fix(ind1 / N) + 1;
-    if i1 == 0
-        i1 = N;
-        j1 = j1 - 1;
-    end
+function res = get_pair_pot(ind1, ind2, alpha, beta, vertC, horC, metric, ver)
+    [N, ~, ~] = size(horC);
     i2 = mod(ind2, N);
     j2 = fix(ind2 / N) + 1;
     if i2 == 0
         i2 = N;
         j2 = j2 - 1;
     end
-    pp = exp(-abs(pair_pot(i1, j1, [alpha, beta, beta, alpha]) - ...
-        pair_pot(i2, j2, [beta, beta, alpha, alpha])))
+    if ver
+        pp = vertC(i2, j2) * [metric(alpha, beta), metric(beta, beta), ...
+            metric(beta, alpha), metric(alpha, alpha)];
+    else
+        pp = horC(i2, j2) * [metric(alpha, beta), metric(beta, beta), ...
+            metric(beta, alpha), metric(alpha, alpha)];
+    end
     res = [ind1, ind2, pp(1) - pp(2), pp(3) - pp(4)];
 end
