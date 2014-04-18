@@ -1,13 +1,14 @@
-K = 4;
+K = 3;
 images = cell(K, 1);
 seeds = cell(K, 1);
 for i = 1 : K
-    images{i} = imread([num2str(i), '.jpg']);
+    images{i} = imread(['m', num2str(i), '.jpg']);
 %     size(images{i})
-    cur = imread(['se', num2str(i), '.jpg']);
+    cur = imread(['ms', num2str(i), '.jpg']);
     seeds{i} = logical(1 - cur(:, :, 1) / 255);
 %     size(seeds{i})
 end
+save model.mat seeds images
 % images{1} = imread('dd1_s.jpg');
 % images{1} = imread('mimg1.jpg');
 % [N, M, ~] = size(images{1})
@@ -40,14 +41,16 @@ end
 % seeds{2}(300 : 435, 70 : 123) = true;
 % seeds{2}(384 : 450, 66 : 315) = true;
 
-[resultImage, resultMask] = stichImages(images, seeds);
+[resultImage, resultMask] = stichImagesC(images, seeds);
 figure();
 image(resultImage / 255)
-imwrite(resultImage / 255, 'res_4.jpg')
+imwrite(resultImage / 255, 'res_mC.jpg')
 resultMask(resultMask == 2) = 10;
 resultMask(resultMask == 3) = 20;
 resultMask(resultMask == 4) = 30;
 resultMask(resultMask == 5) = 40;
 figure()
+
 image(resultMask)
-print('mask_4', '-depsc2', '-r300');
+axis equal
+print('mask_mC', '-depsc2', '-r300');

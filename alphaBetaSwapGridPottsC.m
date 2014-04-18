@@ -1,4 +1,4 @@
-function [labels, energy, time] = alphaBetaSwapGridPottsC(unary_pot, ...
+function [best_labels, best_energy, best_time] = alphaBetaSwapGridPottsC(unary_pot, ...
     vertC, horC, metric, options)
 % This function finds errors in message
 % INPUT:
@@ -22,11 +22,12 @@ function [labels, energy, time] = alphaBetaSwapGridPottsC(unary_pot, ...
 %    time: niter-by-1 array of double, time in sec from start to each
 %        iteration
 
+    EPS = 1e-1;
     MAX_ITER = 500;
     DISPLAY = false;
     NUM_START = 1;
     RAND_ORDER = false;
-    if nargin > 2
+    if nargin > 4
         if isfield(options, 'maxIter')
             MAX_ITER = options.maxIter;
         end
@@ -42,93 +43,163 @@ function [labels, energy, time] = alphaBetaSwapGridPottsC(unary_pot, ...
     end
     
     [N, M, K] = size(unary_pot);
+    best_energy = Inf;
     
-    % initialization
-    labels = unary_pot(:, :, 2) + 1;%randi(K, [N, M]);
-    time = zeros(1, MAX_ITER);
-    mask_ver = zeros(N, M);
-    mask_hor = zeros(N, M);
-                    
-    for t = 1 : MAX_ITER
-        if DISPLAY
-            energy = get_energyC(labels, unary_pot, vertC, horC, metric);
-            fprintf('Iteration %d: E = %f\nNumber of 2nd pic: %d\n', t, ...
-                energy, sum(sum(labels == 2)));
-        end
-        tic;
-        for alpha = 1 : K
-            for beta = (alpha + 1) : K
-                % find alpha and beta indices, (i, j) -> i + (j - 1) * N
-                inds = find((labels == alpha) | (labels == beta)); % col
-                % build graph
-                % source, sink
-                terminal_weights = [unary_pot(inds + N * M * (alpha - 1)), ...
-                    unary_pot(inds + N * M * (beta - 1))];
-                
-                % from, to, capacity, reverse_capacity
-                mask = (labels == alpha) | (labels == beta);
-                mask_ver(2 : end, :) = mask(1 : (end - 1), :);
-                mask_hor(:, 2 : end) = mask(:, 1 : (end - 1));
-                inds_ver = find(mask == mask_ver);
-%                 max(inds_ver)
-                inds_hor = find(mask == mask_hor);
-%                 max(inds_hor)
-                edge_weights = zeros(length([inds_ver; inds_hor]), 4);
-                for i = 1 : length(inds_ver)
-%                     if isempty(find(inds == inds_ver(i), 1)) || isempty(find(inds == inds_ver(i) - 1, 1))
-%                         inds_ver(i)
-%                         inds_ver(i) - 1
-%                     end
-                    edge_weights(i, :) = ...
-                        get_pair_pot(find(inds == inds_ver(i), 1), ...
-                        find(inds == inds_ver(i) - 1, 1), ...
-                        alpha, beta, vertC, horC, metric, true);
-                    if any(edge_weights(i, :) < 0)
-                        edge_weights(i, :)
-                        return
-                    end
-%                     edge_weights(i, :) = [find(inds == inds_ver(i), 1), ...
-%                         find(inds == inds_ver(i) - 1, 1), ...
-%                         pair_pot(alpha, beta) - pair_pot(beta, beta), ...
-%                         pair_pot(beta, alpha) - pair_pot(alpha, alpha)];
+    for q = 1 : NUM_START
+        % initialization
+        labels = randi(K, [N, M]);
+        time = zeros(1, MAX_ITER);
+        energy = zeros(1, MAX_ITER);
+        cur_energy = Inf;
+        [alphas, betas] = find(triu(1 - eye(K)));
+        list = [alphas, betas];
+
+        for t = 1 : MAX_ITER
+            tic;
+            if mod(t - 1, size(list, 1)) == 0
+                if RAND_ORDER
+                    list = list(randperm(length(list)), :);
                 end
-                fprintf('hor...\n');
-                for i = 1 : length(inds_hor)
-                    edge_weights(i + length(inds_ver), :) = ...
-                        get_pair_pot(find(inds == inds_hor(i), 1), ...
-                        find(inds == inds_hor(i) - N, 1), ...
-                        alpha, beta, vertC, horC, metric, false);
-                end
-                
-                % find labels of min cut
-                fprintf('  Start graph cut...')
-                [~, bin_labels] = graphCutMex(terminal_weights, edge_weights);
-                fprintf(' Done.\n')
-                % respectively change labels to alpha / beta
-                bin_labels(bin_labels == 1) = alpha;
-                bin_labels(bin_labels == 0) = beta;
-                labels(inds) = bin_labels;
             end
+            s = mod(t - 1, size(list, 1)) + 1;
+            alpha = list(s, 1);
+            beta = list(s, 2);
+            
+            old_energy = cur_energy;
+            cur_energy = get_energyC(labels, unary_pot, vertC, horC, metric);
+            energy(t) = cur_energy;
+            if DISPLAY
+                fprintf('Iteration %d: alpha = %d, beta = %d, E = %f\n', ...
+                    t, alpha, beta, cur_energy);
+            end
+            if (abs(cur_energy - old_energy) < EPS)
+                break;
+            end
+            
+            % find alpha and beta indices, (i, j) -> i + (j - 1) * N
+            inds = find((labels == alpha) | (labels == beta));
+            rev_inds = zeros(1, N * M);
+            rev_inds(inds) = 1 : length(inds);
+
+            mask = (labels == alpha) | (labels == beta);
+            inds_ver = find([false(1, M); (mask(1 : (end - 1), :) == ...
+                mask(2 : end, :))] & (mask == true));
+            inds_hor = find([false(N, 1), (mask(:, 1 : (end - 1)) == ...
+                mask(:, 2 : end))] & (mask == true));
+
+            inds_edge = find((mask == true) & ...
+                ([false(1, M); (~mask(1 : (end - 1), :) == mask(2 : end, :))] | ...
+                [(~mask(:, 1 : (end - 1)) == mask(:, 2 : end)), false(N, 1)] | ...
+                [(~mask(2 : end, :) == mask(1 : (end - 1), :)); false(1, M)] | ...
+                [false(N, 1), (~mask(:, 2 : end) == mask(:, 1 : (end - 1)))]));
+
+            % build graph
+            % source, sink
+            terminal_weights = [unary_pot(inds + N * M * (alpha - 1)), ...
+                unary_pot(inds + N * M * (beta - 1))];
+            terminal_weights(rev_inds(inds_edge), :) = ...
+                terminal_weights(rev_inds(inds_edge), :) + ...
+                    edge_additions(inds_edge, alpha, beta, labels, ...
+                    vertC, horC, metric);
+
+            % from, to, capacity, reverse_capacity
+            edge_weights = zeros(length([inds_ver; inds_hor]), 4);
+            edge_weights(1 : length(inds_ver), :) = ...
+                get_edges(rev_inds, inds_ver, ...
+                inds_ver - 1, ...
+                alpha, beta, vertC, horC, metric, true);
+            edge_weights((length(inds_ver) + 1) : end, :) = ...
+                get_edges(rev_inds, inds_hor, ...
+                inds_hor - N, ...
+                alpha, beta, vertC, horC, metric, false);
+
+            % find labels of min cut
+            [~, bin_labels] = graphCutMex(terminal_weights, edge_weights);
+            % respectively change labels to alpha / beta
+            bin_labels(bin_labels == 1) = alpha;
+            bin_labels(bin_labels == 0) = beta;
+            labels(inds) = bin_labels;
+            
+            time(t) = toc;
         end
-        time(t) = toc;
+        time = cumsum(time);
+        if (cur_energy < best_energy(end))
+            best_energy = energy;
+            best_labels = labels;
+            best_time = time;
+        end
     end
-    time = cumsum(time);
 end
 
-function res = get_pair_pot(ind1, ind2, alpha, beta, vertC, horC, metric, ver)
-    [N, ~, ~] = size(horC);
-    i2 = mod(ind2, N);
-    j2 = fix(ind2 / N) + 1;
-    if i2 == 0
-        i2 = N;
-        j2 = j2 - 1;
-    end
+function res = get_edges(rev_inds, ind1, ind2, alpha, beta, vertC, horC, metric, ver)
+    rev_inds = rev_inds(:);
+    ind1 = ind1(:);
+    ind2 = ind2(:);
     if ver
-        pp = vertC(i2, j2) * [metric(alpha, beta), metric(beta, beta), ...
-            metric(beta, alpha), metric(alpha, alpha)];
+        % (i, j) -> i + (j - 1) * size_1
+        [N, ~, ~] = size(horC);
+        i2 = mod(ind2, N);
+        j2 = fix(ind2 / N) + 1;
+        j2(i2 == 0) = j2(i2 == 0) - 1;
+        i2(i2 == 0) = N;
+        lin_inds = i2 + (j2 - 1) * size(vertC, 1);
+        pp = repmat(vertC(lin_inds), 1, 2) .* ...
+            repmat([metric(alpha, beta) - metric(alpha, alpha), ...
+            metric(beta, alpha) - metric(beta, beta)], length(lin_inds), 1);
     else
-        pp = horC(i2, j2) * [metric(alpha, beta), metric(beta, beta), ...
-            metric(beta, alpha), metric(alpha, alpha)];
+        pp = repmat(horC(ind2), 1, 2) .* ...
+            repmat([metric(alpha, beta) - metric(alpha, alpha), ...
+            metric(beta, alpha) - metric(beta, beta)], length(ind2), 1);
     end
-    res = [ind1, ind2, pp(1) - pp(2), pp(3) - pp(4)];
+    res = [rev_inds(ind1), rev_inds(ind2), pp(:, 1), pp(:, 2)];
+end
+
+function [res, ngbr] = edge_additions(inds, alpha, beta, labels, vertC, horC, metric)
+    [N, ~] = size(horC);
+    [~, M] = size(vertC);
+    [K, ~] = size(metric);
+    inds = inds(:);
+    add = zeros(length(inds), 4, 2);
+    ngbr = zeros(length(inds), 4);
+    ngbr(:, 1) = inds + 1;
+    ngbr(:, 2) = inds - 1;
+    ngbr(:, 3) = inds + N;
+    ngbr(:, 4) = inds - N;
+    mask = (ngbr > 0) & (ngbr <= N * M);
+    mask(:, 1) = mask(:, 1) & (mod(inds, N) ~= 0);
+    mask(:, 2) = mask(:, 2) & (mod(inds - 1, N) ~= 0);
+    mask(mask) = (labels(ngbr(mask)) ~= alpha) & (labels(ngbr(mask)) ~= beta);
+    % n1
+    i = mod(inds, N);
+    j = fix(inds / N) + 1;
+    j(i == 0) = j(i == 0) - 1;
+    i(i == 0) = N;
+    lin_inds = i + (j - 1) * size(vertC, 1);
+    add(mask(:, 1), 1, 1) = vertC(lin_inds(mask(:, 1))) .* ...
+        metric(labels(ngbr(mask(:, 1), 1)) + K * (alpha - 1));
+    add(mask(:, 1), 1, 2) = vertC(lin_inds(mask(:, 1))) .* ...
+        metric(labels(ngbr(mask(:, 1), 1)) + K * (beta - 1));
+    % n2
+    i = mod(ngbr(:, 2), N);
+    j = fix(ngbr(:, 2) / N) + 1;
+    j(i == 0) = j(i == 0) - 1;
+    i(i == 0) = N;
+    lin_inds = i + (j - 1) * size(vertC, 1);
+    add(mask(:, 2), 2, 1) = vertC(lin_inds(mask(:, 2))) .* ...
+        metric(alpha + K * (labels(ngbr(mask(:, 2), 2)) - 1));
+    add(mask(:, 2), 2, 2) = vertC(lin_inds(mask(:, 2))) .* ...
+        metric(beta + K * (labels(ngbr(mask(:, 2), 2)) - 1));
+    % in horC the same absolute index as in big matrix
+    % n3
+    add(mask(:, 3), 3, 1) = horC(inds(mask(:, 3))) .* ...
+        metric(labels(ngbr(mask(:, 3), 3)) + K * (alpha - 1));
+    add(mask(:, 3), 3, 2) = horC(inds(mask(:, 3))) .* ...
+        metric(labels(ngbr(mask(:, 3), 3)) + K * (beta - 1));
+    % n4
+    add(mask(:, 4), 4, 1) = horC(ngbr(mask(:, 4), 4)) .* ...
+        metric(alpha + K * (labels(ngbr(mask(:, 4), 4)) - 1));
+    add(mask(:, 4), 4, 2) = horC(ngbr(mask(:, 4), 4)) .* ...
+        metric(beta + K * (labels(ngbr(mask(:, 4), 4)) - 1));
+    res = squeeze(sum(add, 2));
+    ngbr = ngbr(mask);
 end

@@ -1,4 +1,4 @@
-function [resultImage, resultMask] = stichImages(images, seeds)
+function [resultImage, resultMask] = stichImagesC(images, seeds)
 % This function stiches several images in one
 % INPUT:
 %    images: K-by-1 cell array of images
@@ -26,34 +26,43 @@ function [resultImage, resultMask] = stichImages(images, seeds)
             for h = 1 : M
 %                 dist = (rows - j) .^ 2 + (cols - h) .^ 2;
 %                 unary_pot(j, h, i) = 1 / (min(dist) + 1);
-%                 unary_pot(:, :, i) = (N ^ 2 + M ^ 2 - min(dist)) / (N ^ 2 + M ^ 2);
+% %                 unary_pot(:, :, i) = (N ^ 2 + M ^ 2 - min(dist)) / (N ^ 2 + M ^ 2);
             end
         end
-%         unary_pot(:, :, i) = max(max(unary_pot(:, :, i))) - unary_pot(:, :, i) / (max(max(unary_pot(:, :, i))) - min(min(unary_pot(:, :, i))));
+% %         unary_pot(:, :, i) = max(max(unary_pot(:, :, i))) - unary_pot(:, :, i) / (max(max(unary_pot(:, :, i))) - min(min(unary_pot(:, :, i))));
     end
     unary_pot = 1e4 * (1 - unary_pot);
     
     % initialize pair potentials
-    intensity = zeros(N, M, K);
+%     pair_pot = zeros(N, M, K);
+%     for i = 1 : K
+%         pair_pot(:, :, i) = rgb2gray(images{i});
+%     end
+%     vertC = ones(N - 1, M); 
+%     horC = ones(N, M - 1);
+
+    tmp = zeros(N, M, K);
     for i = 1 : K
-        intensity(:, :, i) = rgb2gray(images{i});
+        tmp(:, :, i) = double(rgb2gray(images{i}));
     end
-    save intensity
+    vertC = 1 - exp(-sum(abs(tmp(1 : (end - 1), :, :) - tmp(2 : end, :, :)), 3));
+    horC = 1 - exp(-sum(abs(tmp(:, 1 : (end - 1), :) - tmp(:, 2 : end, :)), 3));
+    metric = 1 - eye(K);
         
     options.display = true;
     options.randOrder = true;
-%     options.maxIter = 50;
-    [resultMask, energy, time] = alphaBetaSwapGridPotts(unary_pot, ...
-        intensity, options);
-%     [Elja_resultMask, Elja_energy, Elja_time] = alphaExpansion(unary_pot, ...
-%         intensity, options);
+    [resultMask, energy, time] = alphaBetaSwapGridPottsC(unary_pot, ...
+        vertC, horC, metric, options);
+%     [Elja_resultMask, Elja_energy, Elja_time] = alphaExpansionGridPotts(unary_pot, ...
+%         vertC, horC, metric, options);
     save results.mat resultMask energy time
 %     save Elja_results.mat Elja_resultMask Elja_energy Elja_time
     figure();
-    energy = energy(energy > 0);
+    energy = energy(energy > 0)
     plot(2 : length(energy), energy(2 : end), 'b')
     xlabel('iteration')
     ylabel('energy')
+    title('Energy')
     legend('energy')
     figure();
     plot(1 : length(time), time, 'r')
